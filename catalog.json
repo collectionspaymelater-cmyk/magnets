@@ -1,0 +1,19 @@
+{
+  "items": {
+    "001": {
+      "mindUrl": "./assets/001.mind",
+      "videoUrl": "./assets/001.mp4",
+      "aspectRatio": 0.5625
+    },
+    "002": {
+      "mindUrl": "https://YOUR-PUBLIC-ASSET-DOMAIN.example/targets/002.mind",
+      "videoUrl": "https://YOUR-PUBLIC-ASSET-DOMAIN.example/videos/002.mp4",
+      "aspectRatio": 0.5625
+    },
+    "003": {
+      "mindUrl": "https://YOUR-PUBLIC-ASSET-DOMAIN.example/targets/003.mind",
+      "videoUrl": "https://YOUR-PUBLIC-ASSET-DOMAIN.example/videos/003.mp4",
+      "aspectRatio": 0.75
+    }
+  }
+}

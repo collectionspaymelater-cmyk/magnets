@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#111827">
+    <title>Photo to Video AR</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      #status-panel {
+        position: fixed;
+        z-index: 10;
+        top: max(1rem, env(safe-area-inset-top));
+        left: 50%;
+        width: min(34rem, calc(100% - 2rem));
+        padding: 0.85rem 1rem;
+        transform: translateX(-50%);
+        border: 1px solid rgb(255 255 255 / 18%);
+        border-radius: 0.75rem;
+        background: rgb(17 24 39 / 88%);
+        color: #fff;
+        text-align: center;
+        line-height: 1.45;
+        pointer-events: auto;
+      }
+
+      #status-panel a {
+        display: inline-block;
+        margin: 0.35rem 0.25rem 0;
+        color: #bfdbfe;
+      }
+
+      #sound-button {
+        position: fixed;
+        z-index: 11;
+        right: max(1rem, env(safe-area-inset-right));
+        bottom: max(1rem, env(safe-area-inset-bottom));
+        left: max(1rem, env(safe-area-inset-left));
+        min-height: 3rem;
+        border: 0;
+        border-radius: 0.75rem;
+        background: #2563eb;
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      #sound-button[hidden] {
+        display: none;
+      }
+
+      a-scene {
+        position: fixed;
+        inset: 0;
+      }
+    </style>
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  </head>
+  <body>
+    <main>
+      <div id="status-panel" role="status" aria-live="polite">Loading this photo's AR experience…</div>
+      <button id="sound-button" type="button" hidden>Tap for sound</button>
+    </main>
+
+    <script>
+      (() => {
+        const statusPanel = document.getElementById('status-panel');
+        const soundButton = document.getElementById('sound-button');
+
+        function setStatus(message) {
+          statusPanel.textContent = message;
+        }
+
+        function showMissingIdStatus() {
+          statusPanel.textContent = 'Missing ?id= in the URL. Try an example: ';
+          ['001', '002', '003'].forEach((id, index) => {
+            if (index > 0) statusPanel.appendChild(document.createTextNode(' '));
+            const link = document.createElement('a');
+            link.href = `${window.location.pathname}?id=${encodeURIComponent(id)}`;
+            link.textContent = `?id=${id}`;
+            statusPanel.appendChild(link);
+          });
+        }
+
+        function findCatalogItem(catalog, itemId) {
+          if (Array.isArray(catalog)) {
+            return catalog.find((entry) => entry && String(entry.id) === itemId) || null;
+          }
+          if (!catalog || typeof catalog !== 'object') return null;
+
+          if (Object.prototype.hasOwnProperty.call(catalog, 'items')) {
+            const items = catalog.items;
+            if (Array.isArray(items)) {
+              return items.find((entry) => entry && String(entry.id) === itemId) || null;
+            }
+            if (items && typeof items === 'object' &&
+                Object.prototype.hasOwnProperty.call(items, itemId)) {
+              return items[itemId];
+            }
+            return null;
+          }
+
+          return Object.prototype.hasOwnProperty.call(catalog, itemId)
+            ? catalog[itemId]
+            : null;
+        }
+
+        function resolveAssetUrl(value, fieldName) {
+          if (typeof value !== 'string' || value.trim() === '') {
+            throw new Error(`This catalog entry is missing its ${fieldName}.`);
+          }
+
+          const url = new URL(value, document.baseURI);
+          if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+            throw new Error(`The ${fieldName} must use an HTTP or HTTPS URL.`);
+          }
+          return url.href;
+        }
+
+        async function startViewer() {
+          const rawId = new URLSearchParams(window.location.search).get('id');
+          const itemId = rawId ? rawId.trim() : '';
+          if (!itemId) {
+            showMissingIdStatus();
+            return;
+          }
+
+          try {
+            const catalogUrl = new URL('./catalog.json', document.baseURI);
+            const response = await fetch(catalogUrl, { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error(`Catalog request failed (${response.status} ${response.statusText}).`);
+            }
+
+            const catalog = await response.json();
+            const item = findCatalogItem(catalog, itemId);
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+              setStatus(`No experience was found for ID "${itemId}". Check the ID in the catalog or URL.`);
+              return;
+            }
+
+            const mindUrl = resolveAssetUrl(item.mindUrl, 'MindAR target URL');
+            const videoUrl = resolveAssetUrl(item.videoUrl, 'video URL');
+            const aspectRatio = Number(item.aspectRatio);
+            if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) {
+              throw new Error('This catalog entry needs a positive aspectRatio (image height divided by image width).');
+            }
+
+            mountScene(mindUrl, videoUrl, aspectRatio);
+          } catch (error) {
+            console.error('Unable to load the AR experience:', error);
+            setStatus(`Could not load this experience: ${error.message}`);
+          }
+        }
+
+        function mountScene(mindUrl, videoUrl, aspectRatio) {
+          if (!window.AFRAME) {
+            throw new Error('A-Frame did not load. Check your connection and reload the page.');
+          }
+
+          const scene = document.createElement('a-scene');
+          scene.setAttribute('embedded', '');
+          scene.setAttribute('vr-mode-ui', 'enabled: false');
+          scene.setAttribute('device-orientation-permission-ui', 'enabled: false');
+          scene.setAttribute('renderer', 'colorManagement: true; physicallyCorrectLights: true');
+          scene.setAttribute('mindar-image', {
+            imageTargetSrc: mindUrl,
+            autoStart: true,
+            // Lower filterMinCF reduces idle jitter but adds lag; raise filterBeta to track motion more responsively.
+            filterMinCF: 0.0001,
+            filterBeta: 1000
+          });
+
+          const assets = document.createElement('a-assets');
+          const video = document.createElement('video');
+          video.id = 'ar-video';
+          video.setAttribute('src', videoUrl);
+          video.setAttribute('muted', '');
+          video.setAttribute('playsinline', '');
+          video.setAttribute('webkit-playsinline', '');
+          video.setAttribute('loop', '');
+          video.setAttribute('preload', 'auto');
+          video.setAttribute('crossorigin', 'anonymous');
+          video.muted = true;
+          video.playsInline = true;
+          assets.appendChild(video);
+          scene.appendChild(assets);
+
+          const camera = document.createElement('a-camera');
+          camera.setAttribute('position', '0 0 0');
+          camera.setAttribute('look-controls', 'enabled: false');
+          scene.appendChild(camera);
+
+          const target = document.createElement('a-entity');
+          target.setAttribute('mindar-image-target', 'targetIndex: 0');
+
+          const plane = document.createElement('a-video');
+          plane.setAttribute('src', '#ar-video');
+          plane.setAttribute('width', '1');
+          plane.setAttribute('height', String(aspectRatio));
+          plane.setAttribute('position', '0 0 0');
+          target.appendChild(plane);
+          scene.appendChild(target);
+
+          let videoFailed = false;
+          video.addEventListener('error', () => {
+            videoFailed = true;
+            console.error('Video failed to load:', video.error);
+            soundButton.hidden = true;
+            setStatus('The video could not be loaded. Check its URL and storage CORS settings, then reload.');
+          });
+
+          target.addEventListener('targetFound', () => {
+            video.muted = true;
+            soundButton.hidden = videoFailed;
+            if (videoFailed) return;
+
+            setStatus('Photo found. Video is playing muted—tap below for sound.');
+            video.play().catch((error) => {
+              console.error('Video playback did not start:', error);
+              setStatus('Photo found. If playback did not start, tap “Tap for sound” to try again.');
+            });
+          });
+
+          target.addEventListener('targetLost', () => {
+            video.pause();
+            soundButton.hidden = true;
+            if (!videoFailed) setStatus('Photo out of view. Point your camera at the photo to resume.');
+          });
+
+          scene.addEventListener('arReady', () => {
+            setStatus('Camera ready. Point it at the photo.');
+          });
+          scene.addEventListener('arError', (event) => {
+            console.error('MindAR could not start:', event.detail);
+            const detail = event.detail && event.detail.error ? event.detail.error : event.detail;
+            const errorName = detail && typeof detail.name === 'string' ? `${detail.name}: ` : '';
+            const errorMessage = typeof detail === 'string'
+              ? detail
+              : detail && typeof detail.message === 'string'
+                ? detail.message
+                : '';
+            scene.style.display = 'none';
+            const loadingOverlay = document.querySelector('.mindar-ui-loading');
+            if (loadingOverlay) loadingOverlay.classList.add('hidden');
+
+            if (errorMessage === 'VIDEO_FAIL') {
+              setStatus('MindAR could not open the camera. Check that this device has a camera, allow browser and system camera access, and close apps using the camera. For another device, use an HTTPS site URL; 127.0.0.1 is only this computer.');
+            } else {
+              setStatus(errorMessage
+                ? `AR could not start (${errorName}${errorMessage}). Check the camera and target URL.`
+                : 'AR could not start. Check camera access, that a camera is available, and that the target URL is reachable.');
+            }
+          });
+
+          soundButton.addEventListener('click', () => {
+            if (videoFailed) return;
+            video.muted = false;
+            video.play().then(() => {
+              soundButton.hidden = true;
+              setStatus('Sound on. Keep the photo in view to continue playback.');
+            }).catch((error) => {
+              console.error('Video playback after tap did not start:', error);
+              setStatus('Playback still could not start. Check the video URL and try reloading.');
+            });
+          });
+
+          document.body.appendChild(scene);
+          setStatus('Loading the AR target and video…');
+        }
+
+        startViewer();
+      })();
+    </script>
+  </body>
+</html>
