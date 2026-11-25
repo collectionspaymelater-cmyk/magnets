@@ -6,8 +6,8 @@
       "aspectRatio": 0.5625
     },
     "002": {
-      "mindUrl": "https://YOUR-PUBLIC-ASSET-DOMAIN.example/targets/002.mind",
-      "videoUrl": "https://YOUR-PUBLIC-ASSET-DOMAIN.example/videos/002.mp4",
+      "mindUrl": "./assets/002.mind",
+      "videoUrl": "./assets/002.mp4",
       "aspectRatio": 0.5625
     },
     "003": {
